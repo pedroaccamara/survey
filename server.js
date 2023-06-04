@@ -39,6 +39,18 @@ const strify = (obj) => {
 // 	return;
 // }
 
+const isLoggedIn = (req, res, err) => {
+	if (!req.session.loggedin) {
+		res.status(401).end(err);
+		return false;
+	}
+	if (!req.session.email) {
+		res.status(500).end('Internal Server Error');
+		return false;
+	}
+	return true
+}
+
 const exec_query = (sql, callback) => {
 	// cleanReader(reader);
 	conn.query(sql, (err, result) => {
@@ -50,6 +62,23 @@ const exec_query = (sql, callback) => {
 		console.log(strify(result)); // REMOVE
 		callback(null, result);
 		// res.status(200).end(strify(result));
+	})
+};
+
+const ex_query = (
+	sql,
+	errCallback = (err, _) => {
+		console.log(err);
+		res.status(500).end('Internal Server Error');
+		return;
+	}, succCallback = (_, result) => {
+		console.log(strify(result)); // REMOVE
+	}) => {
+	conn.query(sql, (err, result) => {
+		if (err) {
+			errCallback(err, null);
+		}
+		succCallback(null, result);
 	})
 };
 
@@ -93,6 +122,7 @@ app.post('/login', (req, res) => {
 		if (result.length > 0) {
 			req.session.loggedin = true;
 			req.session.email = email;
+			req.session.userid = result[0].id;
 			res.status(200).end('Logged in');
 			return;
 		}
@@ -101,14 +131,8 @@ app.post('/login', (req, res) => {
 })
 
 app.post('/new-survey', function (req, res) {
-	if (!req.session.loggedin) {
-		res.status(401).end('Please login to create a survey');
-		return;
-	}
-	if (!req.session.email) {
-		res.status(500).end('Internal Server Error');
-		return;
-	}
+	const errormsg = 'Please login to create a survey';
+	if (!isLoggedIn(req, res, errormsg)) return;
 
 	let { heading, description = null, public = true } = req.body;
 	if (!heading) {
@@ -130,12 +154,57 @@ app.post('/new-survey', function (req, res) {
 		exec_query(sql, (err, result) => {
 			if (err) {
 				res.status(500).end('Internal Server Error');
-				return
+				return;
 			}
 			res.status(200).end(strify(result));
 		});
 	})
 })
+
+app.get('/survey-:id', function (req, res) {
+	const id = req.params.id;
+	exec_query(`SELECT public, creator_id FROM surveys WHERE id = ${id}`, (err, result) => {
+		if (err) {
+			res.status(500).end('Internal Server Error');
+			return;
+		}
+		if (result.length === 0) {
+			res.status(404).end('Survey not found')
+			return;
+		}
+		const public = result[0].public;
+		if (!public) {
+			if (!isLoggedIn(req, res, 'This survey has restricted access, login is required')) return;
+			const email = req.session.email;
+			const userid = req.session.userid;
+			const creatorid = result[0].creator_id;
+			if (userid === creatorid) {
+				fetchSurvey(id, res);
+				return;
+			}
+			ex_query(`SELECT * FROM survey_access WHERE user_id = ${userid} AND survey_id = ${id}`, undefined, succCallback = (_, result) => {
+				if (result.length === 0) {
+					res.status(401).end('Your account doesn\'t have access to this survey');
+					return;
+				}
+				fetchSurvey(id, res);
+			});
+		} else {
+			fetchSurvey(id, res);
+		}
+	});
+})
+
+const fetchSurvey = (id, res) => {
+	ex_query(`SELECT * FROM surveys WHERE id = ${id}`, undefined, (_, result) => {
+		const survey = {
+			heading: result[0].heading,
+			description: result[0].description
+		}
+		res.status(200).json(survey);
+		res.end()
+	})
+}
 
 app.get('/all-surveys', function (req, res) {
 	exec_query("SELECT * FROM surveys", (err, result) => {
@@ -146,6 +215,13 @@ app.get('/all-surveys', function (req, res) {
 		}
 	});
 })
+
+/*
+updateSurvey visibility
+UPDATE surveys SET public = 0 WHERE id = <survey_id>;
+
+shareSurvey
+*/
 
 var server = app.listen(8081, function () {
 	var port = server.address().port
