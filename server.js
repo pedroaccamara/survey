@@ -110,13 +110,15 @@ app.post('/new-survey', function (req, res) {
 		return;
 	}
 
-	let { heading, description = null } = req.body;
+	let { heading, description = null, public = true } = req.body;
 	if (!heading) {
 		res.status(422).end('A heading is mandatory to create a survey');
 		return;
 	}
-	if (description) description = `'${description}'`;
-	else description = 'NULL';
+	heading = mysql.escape(heading)
+	description = mysql.escape(description);
+	if (!public) public = 0
+	else public = 1
 	let sql = `SELECT id FROM users WHERE email = '${req.session.email}'`;
 	exec_query(sql, (err, result) => {
 		if (err || result.length === 0) {
@@ -124,7 +126,7 @@ app.post('/new-survey', function (req, res) {
 			return;
 		}
 		const id = result[0].id;
-		sql = `INSERT INTO surveys (heading, description, creator_id) VALUES ('${heading}', ${description}, ${id})`;
+		sql = `INSERT INTO surveys (heading, description, creator_id, public) VALUES (${heading}, ${description}, ${id}, ${public})`;
 		exec_query(sql, (err, result) => {
 			if (err) {
 				res.status(500).end('Internal Server Error');
