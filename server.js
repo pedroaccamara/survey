@@ -101,6 +101,41 @@ app.post('/login', (req, res) => {
 })
 
 app.post('/new-survey', function (req, res) {
+	if (!req.session.loggedin) {
+		res.status(401).end('Please login to create a survey');
+		return;
+	}
+	if (!req.session.email) {
+		res.status(500).end('Internal Server Error');
+		return;
+	}
+
+	let { heading, description = null } = req.body;
+	if (!heading) {
+		res.status(422).end('A heading is mandatory to create a survey');
+		return;
+	}
+	if (description) description = `'${description}'`;
+	else description = 'NULL';
+	let sql = `SELECT id FROM users WHERE email = '${req.session.email}'`;
+	exec_query(sql, (err, result) => {
+		if (err || result.length === 0) {
+			res.status(500).end('Internal Server Error');
+			return;
+		}
+		const id = result[0].id;
+		sql = `INSERT INTO surveys (heading, description, creator_id) VALUES ('${heading}', ${description}, ${id})`;
+		exec_query(sql, (err, result) => {
+			if (err) {
+				res.status(500).end('Internal Server Error');
+				return
+			}
+			res.status(200).end(strify(result));
+		});
+	})
+})
+
+app.get('/all-surveys', function (req, res) {
 	exec_query("SELECT * FROM surveys", (err, result) => {
 		if (err) {
 			res.status(500).end('Internal Server Error');
@@ -108,7 +143,6 @@ app.post('/new-survey', function (req, res) {
 			res.status(200).end(strify(result));
 		}
 	});
-	// res.end( result );
 })
 
 var server = app.listen(8081, function () {
