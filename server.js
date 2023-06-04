@@ -69,7 +69,6 @@ const ex_query = (
 	sql,
 	errCallback = (err, _) => {
 		console.log(err);
-		res.status(500).end('Internal Server Error');
 		return;
 	}, succCallback = (_, result) => {
 		console.log(strify(result)); // REMOVE
@@ -195,6 +194,40 @@ app.get('/survey-:id', function (req, res) {
 	});
 })
 
+app.post('/share-survey/:id/:userid', function (req, res) {
+	if (!isLoggedIn(req, res, 'This action can only be performed from authenticated accounts')) return;
+	const id = req.params.id;
+	ex_query(`SELECT public, creator_id FROM surveys WHERE id = ${id}`, undefined, (_, result) => {
+		if (result.length === 0) {
+			res.status(404).end('Survey not found')
+			return;
+		}
+		const public = result[0].public;
+		if (public) {
+			res.status(409).end('This survey is public and can already be accessed by everyone');
+			return;
+		}
+		const sharerid = req.session.userid;
+		const creatorid = result[0].creator_id;
+		const receiverid = req.params.userid;
+		if (sharerid !== creatorid) {
+			res.status(401).end('Only the creator of a survey has permission to share it with others');
+			return;
+		}
+		if (sharerid === receiverid) {
+			res.status(409).end('The creator of a survey already has access to it');
+			return;
+		}
+		ex_query(`SELECT * FROM survey_access WHERE user_id = ${receiverid} AND survey_id = ${id}`, undefined, succCallback = (_, result) => {
+			if (result.length > 0) {
+				res.status(409).end('This account already has access to the survey');
+				return;
+			}
+			ex_query(`INSERT INTO survey_access (user_id, survey_id) VALUES (${receiverid}, ${id})`)
+		});
+	});
+})
+
 const fetchSurvey = (id, res) => {
 	ex_query(`SELECT * FROM surveys WHERE id = ${id}`, undefined, (_, result) => {
 		const survey = {
@@ -219,8 +252,6 @@ app.get('/all-surveys', function (req, res) {
 /*
 updateSurvey visibility
 UPDATE surveys SET public = 0 WHERE id = <survey_id>;
-
-shareSurvey
 */
 
 var server = app.listen(8081, function () {
