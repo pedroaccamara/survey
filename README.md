@@ -3,7 +3,6 @@ $ `sudo service mysql start`
 $ `npm install`  
 $ `node server.js`  
 
-
 # A few example requests that could prove useful to test  
 ## Register  
 $ `curl -X POST -H "Content-Type: application/json" -d '{"email":"firstuser", "password": "12345"}' localhost:8081/register`  
@@ -58,6 +57,17 @@ Posting to /new-survey, and already logged in
 ```
 
 ## Database
+Create the database and the user  
+$ `mysql -u root -p`  
+
+```
+CREATE DATABASE survey;
+CREATE USER 'survey'@'localhost' IDENTIFIED BY '1234';
+GRANT ALL PRIVILEGES ON survey.* TO 'survey'@'localhost';
+FLUSH PRIVILEGES;
+exit;
+```
+
 $ `CREATE TABLE users (id INT(11) AUTO_INCREMENT PRIMARY KEY, email VARCHAR(255), password VARCHAR(255));`  
 
 $ `CREATE TABLE surveys (id INT(11) AUTO_INCREMENT PRIMARY KEY, heading VARCHAR(255) NOT NULL, description VARCHAR(255),  creator_id INT(11), public TINYINT(1) DEFAULT 1, FOREIGN KEY (creator_id) REFERENCES users(id));`  
