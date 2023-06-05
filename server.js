@@ -66,12 +66,14 @@ const exec_query = (sql, callback) => {
 };
 
 const ex_query = (
+	res,
 	sql,
 	errCallback = (err, _) => {
 		console.log(err);
 		return;
 	}, succCallback = (_, result) => {
 		console.log(strify(result)); // REMOVE
+		res.status(500).end('Internal Server Error');
 	}) => {
 	conn.query(sql, (err, result) => {
 		if (err) {
@@ -162,53 +164,36 @@ app.post('/new-survey', function (req, res) {
 
 app.get('/survey-:id', function (req, res) {
 	const id = req.params.id;
-	exec_query(`SELECT public, creator_id FROM surveys WHERE id = ${id}`, (err, result) => {
-		if (err) {
-			res.status(500).end('Internal Server Error');
-			return;
-		}
-		if (result.length === 0) {
-			res.status(404).end('Survey not found')
-			return;
-		}
-		const public = result[0].public;
+	getSurveyAccess(res, id, (public, creatorid) => {
 		if (!public) {
 			if (!isLoggedIn(req, res, 'This survey has restricted access, login is required')) return;
-			const email = req.session.email;
 			const userid = req.session.userid;
-			const creatorid = result[0].creator_id;
 			if (userid === creatorid) {
 				fetchSurvey(id, res);
 				return;
 			}
-			ex_query(`SELECT * FROM survey_access WHERE user_id = ${userid} AND survey_id = ${id}`, undefined, succCallback = (_, result) => {
+			ex_query(res, `SELECT * FROM survey_access WHERE user_id = ${userid} AND survey_id = ${id}`, undefined, succCallback = (_, result) => {
 				if (result.length === 0) {
 					res.status(401).end('Your account doesn\'t have access to this survey');
 					return;
 				}
 				fetchSurvey(id, res);
 			});
-		} else {
-			fetchSurvey(id, res);
+			return;
 		}
+		fetchSurvey(id, res);
 	});
 })
 
 app.post('/share-survey/:id/:userid', function (req, res) {
 	if (!isLoggedIn(req, res, 'This action can only be performed from authenticated accounts')) return;
 	const id = req.params.id;
-	ex_query(`SELECT public, creator_id FROM surveys WHERE id = ${id}`, undefined, (_, result) => {
-		if (result.length === 0) {
-			res.status(404).end('Survey not found')
-			return;
-		}
-		const public = result[0].public;
+	getSurveyAccess(res, id, (public, creatorid) => {
 		if (public) {
 			res.status(409).end('This survey is public and can already be accessed by everyone');
 			return;
 		}
 		const sharerid = req.session.userid;
-		const creatorid = result[0].creator_id;
 		const receiverid = req.params.userid;
 		if (sharerid !== creatorid) {
 			res.status(401).end('Only the creator of a survey has permission to share it with others');
@@ -218,18 +203,28 @@ app.post('/share-survey/:id/:userid', function (req, res) {
 			res.status(409).end('The creator of a survey already has access to it');
 			return;
 		}
-		ex_query(`SELECT * FROM survey_access WHERE user_id = ${receiverid} AND survey_id = ${id}`, undefined, succCallback = (_, result) => {
+		ex_query(res, `SELECT * FROM survey_access WHERE user_id = ${receiverid} AND survey_id = ${id}`, undefined, succCallback = (_, result) => {
 			if (result.length > 0) {
 				res.status(409).end('This account already has access to the survey');
 				return;
 			}
-			ex_query(`INSERT INTO survey_access (user_id, survey_id) VALUES (${receiverid}, ${id})`)
+			ex_query(res, `INSERT INTO survey_access (user_id, survey_id) VALUES (${receiverid}, ${id})`)
 		});
 	});
 })
 
+const getSurveyAccess = (res, id, callback) => {
+	ex_query(res, `SELECT public, creator_id FROM surveys WHERE id = ${id}`, undefined, (_, result) => {
+		if (result.length === 0) {
+			res.status(404).end('Survey not found')
+			return;
+		}
+		callback(result[0].public, result[0].creator_id);
+	})
+}
+
 const fetchSurvey = (id, res) => {
-	ex_query(`SELECT * FROM surveys WHERE id = ${id}`, undefined, (_, result) => {
+	ex_query(res, `SELECT * FROM surveys WHERE id = ${id}`, undefined, (_, result) => {
 		const survey = {
 			heading: result[0].heading,
 			description: result[0].description
@@ -252,6 +247,8 @@ app.get('/all-surveys', function (req, res) {
 /*
 updateSurvey visibility
 UPDATE surveys SET public = 0 WHERE id = <survey_id>;
+
+updateUserAccess (remove)
 */
 
 var server = app.listen(8081, function () {
